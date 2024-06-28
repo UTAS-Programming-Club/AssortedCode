@@ -2,11 +2,13 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <zstd.h>
 
 #define base 85
 
-struct  __attribute__((__packed__)) SaveData {
+struct  __attribute__((packed, scalar_storage_order("little-endian"))) SaveData {
   uint16_t a;
   uint8_t b;
   uint8_t c;
@@ -20,9 +22,6 @@ struct  __attribute__((__packed__)) SaveData {
   uint64_t k;
 };
 
-#include <stdlib.h>
-#include <string.h>
-
 static inline size_t min(size_t a, size_t b) {
   return a < b ? a : b;
 }
@@ -34,6 +33,24 @@ static inline char GetChar(uint_fast8_t val) {
 
   return '!' + val;
 }
+
+static inline uint_fast8_t GetVal(char c) {
+  if ('!' > c || base + '!' <= c) {
+    return UINT_FAST8_MAX;
+  }
+
+  return c - '!';
+}
+
+static inline void PrintSaveData(const struct SaveData * data) {
+  printf(
+    "data = { %" PRIu16 ", %" PRIu8 ", %" PRIu8 ", %" PRIu8 ", %" PRIu16 ", %"
+      PRIu8 ", %" PRIi8 ", %" PRIu32 ", %" PRIi32 ", %" PRIi8 ", %" PRIu64 " }\n\n",
+    data->a, data->b, data->c, data->d, data->e, data->f, data->g, data->h, data->i,
+    data->j, data->k
+  );
+}
+
 
 static void *CompressData(const void *data, size_t dataSize, size_t *maxCompressedDataSize, size_t *compressedDataSize) {
   if (!data || !maxCompressedDataSize || !compressedDataSize) {
@@ -162,6 +179,136 @@ static char *EncodeData(const void *data, size_t dataSize, size_t *passwordSize)
   return password;
 }
 
+static char *CompressAndEncodeData(const void *data, size_t dataSize) {
+  size_t maxCompressedDataSize, compressedDataSize;
+  void *compressedData = CompressData(data, dataSize, &maxCompressedDataSize, &compressedDataSize);
+  if (!compressedData) {
+    return NULL;
+  }
+
+  // TODO: Avoid "passing argument 1 of ‘PrintSaveData’ from incompatible scalar storage order" warning when compiling for big endian systems
+  // Also make sure this code works at all there
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wscalar-storage-order"
+  PrintSaveData(data);
+#pragma GCC diagnostic pop 
+
+
+  printf("Size of struct SaveData: %zu\n", dataSize);
+  printf("Max compressed size of struct SaveData: %zu\n", maxCompressedDataSize);
+  printf("Actual compressed size of struct SaveData: %zu\n", compressedDataSize);
+
+  if (compressedDataSize < dataSize) {
+    data = compressedData;
+    dataSize = compressedDataSize;
+    puts("Using compressed data.");
+  } else {
+    puts("Using uncompressed data.");
+  }
+  putchar('\n');
+
+  size_t passwordSize;
+  char *password = EncodeData(data, dataSize, &passwordSize);
+  free(compressedData);
+  if (!password) {
+    return NULL;
+  }
+
+  return password;
+}
+
+
+static void *DecodeData(const char* password, size_t *dataSize) {
+  if (!password || !dataSize) {
+    return NULL;
+  }
+
+  size_t requiredPasswordSize = 5 * ceil(sizeof(struct SaveData) / 4.) + 1;
+  size_t passwordSize = strlen(password);
+
+  uint_fast32_t powers[] = {
+    pow(base, 0),
+    pow(base, 1),
+    pow(base, 2),
+    pow(base, 3),
+    pow(base, 4)
+  };
+
+  // Can't compare to requiredPasswordSize yet as that is for uncompressed data
+  if (passwordSize % 5 != 0) {
+    puts("Password length is invalid");
+    return NULL;
+  }
+
+  *dataSize = 4 * passwordSize / 5;
+  uint32_t *decodedData = malloc(*dataSize);
+  if (!decodedData) {
+    puts("Failed to allocate memory for decoded data");
+    return NULL;
+  }
+
+  for (size_t i = 0; i < passwordSize; i += 5) {
+    printf("\n%zu-%zu: %.*s\n", i, i + 4, 5, password + i);
+
+    uint_fast8_t digit0 = GetVal(password[i]); 
+    uint_fast8_t digit1 = GetVal(password[i + 1]);
+    uint_fast8_t digit2 = GetVal(password[i + 2]);
+    uint_fast8_t digit3 = GetVal(password[i + 3]);
+    uint_fast8_t digit4 = GetVal(password[i + 4]);
+    if (UINT_FAST8_MAX == digit0 || UINT_FAST8_MAX == digit1 || UINT_FAST8_MAX == digit2
+        || UINT_FAST8_MAX == digit3 || UINT_FAST8_MAX == digit4) {
+      puts("Password char not in range");
+      return NULL;
+    }
+
+    decodedData[i / 5] = digit4 * powers[4] + digit3 * powers[3] + digit2 * powers[2] + digit1 * powers[1] + digit0 * powers[0];
+
+    printf(
+      "%zu-%zu: "
+      "%" PRIuFAST8 " * %" PRIuFAST8 "^%i + "
+      "%" PRIuFAST8 " * %" PRIuFAST8 "^%i + "
+      "%" PRIuFAST8 " * %" PRIuFAST8 "^%i + "
+      "%" PRIuFAST8 " * %" PRIuFAST8 "^%i + "
+      "%" PRIuFAST8 " * %" PRIuFAST8 "^%i = "
+      "%" PRIu32 "\n",
+      i, i + 4,
+      digit4, base, 4,
+      digit3, base, 3,
+      digit2, base, 2,
+      digit1, base, 1,
+      digit0, base, 0,
+      decodedData[i / 5]
+    );
+  }
+
+  return decodedData;
+}
+
+static void *DecompressData(const void *data, size_t dataSize) {
+  if (!data) {
+    return NULL;
+  }
+
+  unsigned long long decompressedDataSize = ZSTD_getFrameContentSize(data);
+  if (ZSTD_CONTENTSIZE_UNKNOWN == dataSize || ZSTD_CONTENTSIZE_ERROR == dataSize) {
+    puts("Unable to identify compressed data, not compressed?");
+    return NULL;
+  }
+
+  void *decompressedData = malloc(decompressedDataSize);
+  if (!decompressedData) {
+    puts("Unable to allocate room for decompressed data");
+    return NULL;
+  }
+
+  size_t res = ZSTD_decompress(decompressedData, decompressedDataSize, data, dataSize);
+  if (ZSTD_isError(res)) {
+    free(decompressedData);
+    return NULL;
+  }
+}
+
+
 int main(void) {
   struct SaveData data = {
     .a = 12345,
@@ -177,7 +324,7 @@ int main(void) {
     .k = INT64_MAX
   };
 
-  void *pData = &data;
+  void *pData = (void *)&data;
   size_t dataSize = sizeof data;
 
   // For testing
@@ -186,35 +333,20 @@ int main(void) {
   memcpy(pData, &data, sizeof data);
   memcpy(pData + sizeof data, &data, sizeof data);
 
-  size_t maxCompressedDataSize, compressedDataSize;
-  void *compressedData = CompressData(pData, dataSize, &maxCompressedDataSize, &compressedDataSize);
-  if (!compressedData) {
-    return 1;
-  }
-
-  printf("Size of struct SaveData: %zu\n", dataSize);
-  printf("Max compressed size of struct SaveData: %zu\n", maxCompressedDataSize);
-  printf("Actual compressed size of struct SaveData: %zu\n", compressedDataSize);
-
-  if (compressedDataSize < dataSize) {
-    pData = compressedData;
-    dataSize = compressedDataSize;
-    puts("Using compressed data.");
-  } else {
-    puts("Using uncompressed data.");
-  }
-  putchar('\n');
-
-  size_t passwordSize;
-  char *password = EncodeData(pData, dataSize, &passwordSize);
-  free(compressedData);
+  char *password = CompressAndEncodeData(pData, dataSize);
   if (!password) {
     return 1;
   }
+  printf("\nPassword: %s\n\n", password);
 
-  // TODO: Add decompression
-  printf("Password: %s\n\n", password);
+  size_t decodedPasswordSize;
+  void *decodedPassword = DecodeData(password, &decodedPasswordSize);
   free(password);
+  if (!decodedPassword) {
+    puts("Failed to decode password.");
+    return 1;
+  }
+
 
   return 0;
 }
