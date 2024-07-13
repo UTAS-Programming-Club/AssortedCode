@@ -29,20 +29,27 @@ cd "$INPUT_PATH" || exit 1
 find . -exec sh -c '
   INPUT_PATH="${3#./}"
   NO_EXT_INPUT_PATH="${INPUT_PATH%.typ}"
-  OUTPUT_FILE="$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
-  OUTPUT_PATH="$2/$OUTPUT_FILE"
+  DIR_COUNT="$((2 * $(echo "$INPUT_PATH" | tr -cd '/' | wc -c)))"
+  FILE="$(basename "$NO_EXT_INPUT_PATH")"
 
-  if [ "$INPUT_PATH" != . ]; then
+  if [ -f "$3" ]; then
     printf "  %*s* [%s](%s/wiki/%s)\n" \
-      "$((2 * $(echo "$INPUT_PATH" | tr -cd '/' | wc -c)))" "" \
-      "$(basename "$NO_EXT_INPUT_PATH")" \
+      "$DIR_COUNT" "" \
+      "$FILE" \
       "${4%.wiki.git}" \
       "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$2/$5"
+  elif [ "$INPUT_PATH" != . ]; then
+    printf "  %*s* %s\n" \
+      "$DIR_COUNT" "" \
+      "$FILE"  >> "../$2/$5"
   fi
+
   if [ ! -f "$3" ]; then
     exit 0
   fi
 
+  OUTPUT_FILE="$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
+  OUTPUT_PATH="$2/$OUTPUT_FILE"
   echo "$1/$INPUT_PATH -> $OUTPUT_PATH"
 
   ../bin/pandoc -f typst -t gfm --wrap=preserve "$3" -o "../$OUTPUT_PATH"
