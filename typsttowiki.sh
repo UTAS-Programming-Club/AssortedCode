@@ -1,7 +1,6 @@
 #! /bin/sh
 
 # TODO: Only redownload pandoc if a flag is given
-# TODO: Add directory prefixes to output files
 
 if [ $# -ne 2 ] ; then
   printf "%s zip_path wiki_git_url\n" "$0"
@@ -29,16 +28,16 @@ printf "" > "$OUTPUT_PATH/$SIDEBAR_FILE"
 cd "$INPUT_PATH" || exit 1
 find . -exec sh -c '
   INPUT_PATH="${3#./}"
-  NO_EXT_FILE="$(basename "${INPUT_PATH%.typ}")"
-  OUTPUT_FILE="$NO_EXT_FILE.md"
+  NO_EXT_INPUT_PATH="${INPUT_PATH%.typ}"
+  OUTPUT_FILE="$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
   OUTPUT_PATH="$2/$OUTPUT_FILE"
 
   if [ "$INPUT_PATH" != . ]; then
     printf "  %*s* [%s](%s/wiki/%s)\n" \
       "$((2 * $(echo "$INPUT_PATH" | tr -cd '/' | wc -c)))" "" \
-      "$NO_EXT_FILE" \
+      "$(basename "$NO_EXT_INPUT_PATH")" \
       "${4%.wiki.git}" \
-      "$(echo "$NO_EXT_FILE" | sed "s/ /-/g")" >> "../$2/$5"
+      "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$2/$5"
   fi
   if [ ! -f "$3" ]; then
     exit 0
