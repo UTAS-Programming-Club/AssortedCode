@@ -15,13 +15,14 @@ wget -q https://github.com/jgm/pandoc/releases/download/3.2.1/pandoc-3.2.1-linux
 tar --strip-components 1 -xf pandoc.tar.gz pandoc-3.2.1/bin/pandoc
 rm pandoc.tar.gz
 
-rm -r $INPUT_PATH 2> /dev/null
-mkdir $INPUT_PATH
-unzip -q "$1" -d $INPUT_PATH
+rm -r "$INPUT_PATH" 2> /dev/null
+mkdir "$INPUT_PATH"
+unzip -q "$1" -d "$INPUT_PATH"
 
 if [ ! -d "$OUTPUT_PATH" ]; then
   git clone -q "$2" "$OUTPUT_PATH"
 fi
+git -C "$OUTPUT_PATH" pull
 
 printf "" > "$OUTPUT_PATH/$SIDEBAR_FILE"
 
