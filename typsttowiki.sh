@@ -1,7 +1,7 @@
 #! /bin/sh
 
 # TODO: Only redownload pandoc if a flag is given
-# TODO: Sort files
+# TODO: Reverse sort on dated session files to put newest at top?
 
 if [ $# -ne 3 ]; then
   printf "%s zip_path git_url image_git_branch\n" "$0"
@@ -42,41 +42,47 @@ git -C "$OUTPUT_WIKI_PATH" pull -q
 printf "" > "$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
 
 cd "$INPUT_PATH" || exit 1
-find . -exec sh -c '
-  INPUT_PATH="${7#./}"
+
+# shellcheck disable=SC2016
+find . -print0 | sort -z | xargs -0 sh -c '
+INPUTS_PATH="$1"
+OUTPUT_IMAGES_PATH="$2"
+OUTPUT_WIKI_PATH="$3"
+SIDEBAR_FILE="$4"
+GIT_URL="$5"
+IMAGES_GIT_BRANCH="$6"
+
+shift 6
+for FILE; do
+  INPUT_PATH="${FILE#./}"
   NO_EXT_INPUT_PATH="${INPUT_PATH%.typ}"
   DIR_COUNT="$((2 * $(echo "$INPUT_PATH" | tr -cd '/' | wc -c)))"
-  FILE="$(basename "$NO_EXT_INPUT_PATH")"
+  BASE_FILE="$(basename "$NO_EXT_INPUT_PATH")"
 
-  if [ -f "$7" ]; then
+  if [ -f "$FILE" ]; then
     case $INPUT_PATH in
       *.typ)
         printf "  %*s* [%s](%s/wiki/%s)\n" \
           "$DIR_COUNT" "" \
-          "$FILE" \
-          "${4%.git}" \
-          "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$3/$5"
-        OUTPUT_PATH="$3/$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
-        sed -i.bak "s@#image(\"\(\.\./\)\+@#image(\"https://raw.githubusercontent${4#https://github}/$6/@" "$7"
-        ../bin/pandoc -f typst -t gfm --wrap=preserve "$7" -o "../$OUTPUT_PATH"
+          "$BASE_FILE" \
+          "${GIT_URL%.git}" \
+          "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
+        OUTPUT_PATH="$OUTPUT_WIKI_PATH/$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
+        sed -i.bak "s@#image(\"\(\.\./\)\+@#image(\"https://raw.githubusercontent${GIT_URL#https://github}/$IMAGES_GIT_BRANCH/@" "$FILE"
+        ../bin/pandoc -f typst -t gfm --wrap=preserve "$FILE" -o "../$OUTPUT_PATH"
         ;;
       *.png)
-        OUTPUT_PATH="$2/$INPUT_PATH"
+        OUTPUT_PATH="$OUTPUT_IMAGES_PATH/$INPUT_PATH"
         mkdir -p "$(dirname ../"$OUTPUT_PATH")"
         cp "$INPUT_PATH" "../$OUTPUT_PATH"
     esac
+    echo "$INPUTS_PATH/$INPUT_PATH -> $OUTPUT_PATH"
   elif [ "$INPUT_PATH" != . ] && [ "$INPUT_PATH" != Images ]; then
     printf "  %*s* %s\n" \
       "$DIR_COUNT" "" \
-      "$FILE"  >> "../$3/$5"
+      "$BASE_FILE"  >> "../$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
   fi
-
-  if [ ! -f "$7" ]; then
-    exit 0
-  fi
-
-  echo "$1/$INPUT_PATH -> $OUTPUT_PATH"
-' sh "$INPUT_PATH" "$OUTPUT_IMAGES_PATH" "$OUTPUT_WIKI_PATH" "$2" "$SIDEBAR_FILE" "$3" "{}" \;
+done' sh "$INPUT_PATH" "$OUTPUT_IMAGES_PATH" "$OUTPUT_WIKI_PATH" "$SIDEBAR_FILE" "$2" "$3"
 
 COMMIT_NAME="Typst Export $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
