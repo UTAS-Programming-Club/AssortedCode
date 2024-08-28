@@ -1,6 +1,7 @@
 #! /bin/sh
 
 # TODO: Only redownload pandoc if a flag is given
+# TODO: Sort files
 
 if [ $# -ne 3 ]; then
   printf "%s zip_path git_url image_git_branch\n" "$0"
@@ -8,8 +9,8 @@ if [ $# -ne 3 ]; then
 fi
 
 INPUT_PATH=input
-OUTPUT_WIKI_PATH=repos/wiki
 OUTPUT_IMAGES_PATH=repos/images
+OUTPUT_WIKI_PATH=repos/wiki
 SIDEBAR_FILE=_Sidebar.md
 
 wget -q https://github.com/jgm/pandoc/releases/download/3.3/pandoc-3.3-linux-amd64.tar.gz -O pandoc.tar.gz
@@ -42,13 +43,12 @@ printf "" > "$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
 
 cd "$INPUT_PATH" || exit 1
 find . -exec sh -c '
-  INPUT_PATH="${6#./}"
+  INPUT_PATH="${7#./}"
   NO_EXT_INPUT_PATH="${INPUT_PATH%.typ}"
   DIR_COUNT="$((2 * $(echo "$INPUT_PATH" | tr -cd '/' | wc -c)))"
   FILE="$(basename "$NO_EXT_INPUT_PATH")"
 
-  if [ -f "$6" ]; then
-    # echo "$4 -> $(dirname "$3")"
+  if [ -f "$7" ]; then
     case $INPUT_PATH in
       *.typ)
         printf "  %*s* [%s](%s/wiki/%s)\n" \
@@ -57,8 +57,8 @@ find . -exec sh -c '
           "${4%.git}" \
           "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$3/$5"
         OUTPUT_PATH="$3/$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
-        sed -i.bak "s@#image(\"..@#image(\"https://raw.githubusercontent.com/UTAS-Programming-Club/UntitledTextAdventure/images@" "$6"
-        ../bin/pandoc -f typst -t gfm --wrap=preserve "$6" -o "../$OUTPUT_PATH"
+        sed -i.bak "s@#image(\"\(\.\./\)\+@#image(\"https://raw.githubusercontent${4#https://github}/$6/@" "$7"
+        ../bin/pandoc -f typst -t gfm --wrap=preserve "$7" -o "../$OUTPUT_PATH"
         ;;
       *.png)
         OUTPUT_PATH="$2/$INPUT_PATH"
@@ -71,12 +71,12 @@ find . -exec sh -c '
       "$FILE"  >> "../$3/$5"
   fi
 
-  if [ ! -f "$6" ]; then
+  if [ ! -f "$7" ]; then
     exit 0
   fi
 
   echo "$1/$INPUT_PATH -> $OUTPUT_PATH"
-' sh "$INPUT_PATH" "$OUTPUT_IMAGES_PATH" "$OUTPUT_WIKI_PATH" "$2" "$SIDEBAR_FILE" "{}" \;
+' sh "$INPUT_PATH" "$OUTPUT_IMAGES_PATH" "$OUTPUT_WIKI_PATH" "$2" "$SIDEBAR_FILE" "$3" "{}" \;
 
 COMMIT_NAME="Typst Export $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
