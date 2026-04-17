@@ -1,7 +1,7 @@
 Set fs = CreateObject("Scripting.FileSystemObject")
 Set oldExec = fs.OpenTextFile("run.exe.tmp")
 Set newExec = fs.OpenTextFile("run.exe", 2, True)
-If IsNull(oldExec) Then
+If IsNull(oldExec) or IsNull(newExec) Then
   WScript.Quit
 End If
 
