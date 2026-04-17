@@ -1,5 +1,6 @@
 <!-- : Begin batch script
 @ECHO OFF
+REM Licensed under MIT.
 REM Based on https://github.com/amakvana/Bat-2-Exec/blob/5f75539/Bat2Exe.bat
 REM and https://stackoverflow.com/a/9074483
 
