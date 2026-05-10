@@ -13,7 +13,7 @@
 #include <wchar.h>      // for mbstate_t, mbsrtowcs, wcslen, wcsrtombs
 
 #ifdef _WIN32
-#include <stdbool.h>    // for bool, false, true
+#include <stdbool.h>    // for bool, true
 #include <Windows.h>    // for CP_UTF8, SSIZE_T, SetConsoleOutputCP
 
 #define nullptr NULL
@@ -78,6 +78,7 @@ static size_t strlenw(const wchar_t *restrict str) {
 // not including the terminating null byte, or a -1 if an error occurred
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
+// TODO: Check if wcsrtombs also has an issue with an undersized output buffer like mbsrtowcs
 
 static ssize_t s16tos8(char8_t *restrict str8, size_t str8Size, const char16_t *restrict str16) {
     mbstate_t state = { 0 };
@@ -152,106 +153,93 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 // These functions return the number of chars that have (or would have if buf or bufSize are 0) been written to buf,
 // not including the terminating null byte, or a -1 if an error occurred
 
-// TODO: Rewrite s8tos16 and s8tos32 to make sure mbrtoc16/mbrtoc32 never writes beyond the end of buf
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
 // TODO: Add s16tos32, s16tows, s32tos16, s32tows, wstos16 & wstos32
 // TOOD: Detect undersized buf in s8tows, sometimes mbsrtowcs reports success when it shouldn't
 
-static ssize_t s8tos16(char16_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
-    if (buf == nullptr || bufSize == 0) {
-        buf = convBuf16;
-        bufSize = sizeof convBuf16;
-    }
-
-    size_t remainingStrBytes = strlen8(str) + 1;
+static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t *restrict str8) {
+    size_t remainingStrBytes = strlen8(str8) + 1;
     mbstate_t state = { 0 };
     size_t charsWritten = 0;
 
-    bool foundTerminator = true;
-    while (foundTerminator) {
-        size_t convState = mbrtoc16(buf, (const char *restrict)str, remainingStrBytes, &state);
-        switch ((ssize_t)convState) {
-            case -3: // High surrogate written
-                ++charsWritten;
-                if (buf != convBuf16) {
-                    ++buf;
-                }
-                break;
-            case -2: // next utf-8 char is truncated
-            case -1: // next utf-8 char is invalid
-                return -1;
-            case 0:  // terminator found
-                foundTerminator = false;
-                break;
-            default:
-                remainingStrBytes -= convState;
-                str += convState;
-                ++charsWritten;
-                if (buf != convBuf16) {
-                    ++buf;
-                }
-                break;
-        }
+    bool writing = str16 != nullptr && str16Size != 0;
+    char16_t *restrict buf = writing ? convBuf16 : nullptr;
 
-        if (buf != convBuf16 && charsWritten * sizeof *buf >= bufSize) {
+    while (true) {
+        size_t convState = mbrtoc16(buf, (const char *restrict)str8, remainingStrBytes, &state);
+        if ((ssize_t)convState == -1 || (ssize_t)convState == -2) { // utf-8 char is invalid or truncated
             return -1;
         }
+
+        if (writing) {
+            if (charsWritten * sizeof *buf >= str16Size) {
+                return -1;
+            }
+
+            memcpy(str16, convBuf16, sizeof *buf);
+            ++str16;
+        }
+
+        if (convState == 0) {  // utf-8 char is terminator
+            break;
+        }
+
+        if ((ssize_t)convState != -3) { // utf-8 char is other than high surrogate
+            remainingStrBytes -= convState;
+            str8 += convState;
+        }
+
+        ++charsWritten;
     }
 
     return (ssize_t)charsWritten;
 }
 
-static ssize_t s8tos32(char32_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
-    if (buf == nullptr || bufSize == 0) {
-        buf = convBuf32;
-        bufSize = sizeof convBuf32;
-    }
-
-    size_t remainingStrBytes = strlen8(str) + 1;
+static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t *restrict str8) {
+    size_t remainingStrBytes = strlen8(str8) + 1;
     mbstate_t state = { 0 };
     size_t charsWritten = 0;
 
-    bool foundTerminator = true;
-    while (foundTerminator) {
-        size_t convState = mbrtoc32(buf, (const char *restrict)str, remainingStrBytes, &state);
-        switch ((ssize_t)convState) {
-            case -3: // High surrogate written
-                ++charsWritten;
-                if (buf != convBuf32) {
-                    ++buf;
-                }
-                break;
-            case -2: // next utf-8 char is truncated
-            case -1: // next utf-8 char is invalid
-                return -1;
-            case 0:  // terminator found
-                foundTerminator = false;
-                break;
-            default:
-                remainingStrBytes -= convState;
-                str += convState;
-                ++charsWritten;
-                if (buf != convBuf32) {
-                    ++buf;
-                }
-                break;
-        }
+    bool writing = str32 != nullptr && str32Size != 0;
+    char32_t *restrict buf = writing ? convBuf32 : nullptr;
 
-        if (buf != convBuf32 && charsWritten * sizeof *buf >= bufSize) {
+    while (true) {
+        size_t convState = mbrtoc32(buf, (const char *restrict)str8, remainingStrBytes, &state);
+        if ((ssize_t)convState == -1 || (ssize_t)convState == -2) { // utf-8 char is invalid or truncated
             return -1;
         }
+
+        if (writing) {
+            if (charsWritten * sizeof *buf >= str32Size) {
+                return -1;
+            }
+
+            memcpy(str32, convBuf32, sizeof *buf);
+            ++str32;
+        }
+
+        if (convState == 0) {  // utf-8 char is terminator
+            break;
+        }
+
+        if ((ssize_t)convState != -3) { // utf-8 char is other than high surrogate
+            remainingStrBytes -= convState;
+            str8 += convState;
+        }
+
+        ++charsWritten;
     }
 
     return (ssize_t)charsWritten;
 }
 
-static ssize_t s8tows(wchar_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
-    if (bufSize == 0) {
-        buf = nullptr;
+static ssize_t s8tows(wchar_t *restrict wstr, size_t wstrSize, const char8_t *restrict str8) {
+    if (wstrSize == 0) {
+        wstr = nullptr;
     }
 
     mbstate_t state = { 0 };
-    return (ssize_t)mbsrtowcs(buf, (const char **restrict)&str, bufSize, &state);
+    return (ssize_t)mbsrtowcs(wstr, (const char **restrict)&str8, wstrSize, &state);
 }
 
 
