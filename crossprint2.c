@@ -74,7 +74,7 @@ static size_t strlenw(const wchar_t *restrict str) {
 }
 
 
-// These functions return the number of bytes that have (or would have if str8 or str8Size are 0) been written to str8,
+// These functions return the number of code units that have (or would have if str8 or str8Size are 0) been written to str8,
 // not including the terminating null byte, or a -1 if an error occurred
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
@@ -82,7 +82,7 @@ static size_t strlenw(const wchar_t *restrict str) {
 
 static ssize_t s16tos8(char8_t *restrict str8, size_t str8Size, const char16_t *restrict str16) {
     mbstate_t state = { 0 };
-    size_t bytesWritten = 0;
+    size_t codeUnitsWritten = 0;
 
     while (true) {
         size_t convState = c16rtomb(convBuf8, str16[0], &state);
@@ -91,7 +91,7 @@ static ssize_t s16tos8(char8_t *restrict str8, size_t str8Size, const char16_t *
         }
 
         if (str8 != nullptr && str8Size != 0) {
-            if (bytesWritten >= str8Size) {
+            if (codeUnitsWritten >= str8Size) {
                 return -1;
             }
 
@@ -104,15 +104,15 @@ static ssize_t s16tos8(char8_t *restrict str8, size_t str8Size, const char16_t *
         }
 
         ++str16;
-        bytesWritten += convState;
+        codeUnitsWritten += convState;
     }
 
-    return (ssize_t)bytesWritten;
+    return (ssize_t)codeUnitsWritten;
 }
 
 static ssize_t s32tos8(char8_t *restrict str8, size_t str8Size, const char32_t *restrict str32) {
     mbstate_t state = { 0 };
-    size_t bytesWritten = 0;
+    size_t codeUnitsWritten = 0;
 
     while (true) {
         size_t convState = c32rtomb(convBuf8, str32[0], &state);
@@ -121,7 +121,7 @@ static ssize_t s32tos8(char8_t *restrict str8, size_t str8Size, const char32_t *
         }
 
         if (str8 != nullptr && str8Size != 0) {
-            if (bytesWritten >= str8Size) {
+            if (codeUnitsWritten >= str8Size) {
                 return -1;
             }
 
@@ -134,10 +134,10 @@ static ssize_t s32tos8(char8_t *restrict str8, size_t str8Size, const char32_t *
         }
 
         ++str32;
-        bytesWritten += convState;
+        codeUnitsWritten += convState;
     }
 
-    return (ssize_t)bytesWritten;
+    return (ssize_t)codeUnitsWritten;
 }
 
 static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *restrict wstr) {
@@ -150,7 +150,7 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 }
 
 
-// These functions return the number of chars that have (or would have if buf or bufSize are 0) been written to buf,
+// These functions return the number of code units that have (or would have if strX or strXSize are 0) been written to str,
 // not including the terminating null byte, or a -1 if an error occurred
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
@@ -158,21 +158,21 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 // TOOD: Detect undersized buf in s8tows, sometimes mbsrtowcs reports success when it shouldn't
 
 static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t *restrict str8) {
-    size_t remainingStrBytes = strlen8(str8) + 1;
     mbstate_t state = { 0 };
-    size_t charsWritten = 0;
+    size_t remainingCodeUnits = strlen8(str8) + 1;
+    size_t codeUnitsWritten = 0;
 
     bool writing = str16 != nullptr && str16Size != 0;
     char16_t *restrict buf = writing ? convBuf16 : nullptr;
 
     while (true) {
-        size_t convState = mbrtoc16(buf, (const char *restrict)str8, remainingStrBytes, &state);
+        size_t convState = mbrtoc16(buf, (const char *restrict)str8, remainingCodeUnits, &state);
         if ((ssize_t)convState == -1 || (ssize_t)convState == -2) { // utf-8 char is invalid or truncated
             return -1;
         }
 
         if (writing) {
-            if (charsWritten * sizeof *buf >= str16Size) {
+            if (codeUnitsWritten * sizeof *buf >= str16Size || convBuf16[1] != u'\0') {
                 return -1;
             }
 
@@ -184,33 +184,33 @@ static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t
             break;
         }
 
-        if ((ssize_t)convState != -3) { // utf-8 char is other than high surrogate
-            remainingStrBytes -= convState;
+        if ((ssize_t)convState != -3) { // utf-8 code point maps to any code point other than a high surrogate in utf-16
+            remainingCodeUnits -= convState;
             str8 += convState;
         }
 
-        ++charsWritten;
+        ++codeUnitsWritten;
     }
 
-    return (ssize_t)charsWritten;
+    return (ssize_t)codeUnitsWritten;
 }
 
 static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t *restrict str8) {
-    size_t remainingStrBytes = strlen8(str8) + 1;
     mbstate_t state = { 0 };
-    size_t charsWritten = 0;
+    size_t remainingCodeUnits = strlen8(str8) + 1;
+    size_t codeUnitsWritten = 0;
 
     bool writing = str32 != nullptr && str32Size != 0;
     char32_t *restrict buf = writing ? convBuf32 : nullptr;
 
     while (true) {
-        size_t convState = mbrtoc32(buf, (const char *restrict)str8, remainingStrBytes, &state);
-        if ((ssize_t)convState == -1 || (ssize_t)convState == -2) { // utf-8 char is invalid or truncated
+        size_t convState = mbrtoc32(buf, (const char *restrict)str8, remainingCodeUnits, &state);
+        if ((ssize_t)convState < 0) { // utf-8 char is invalid or truncated or requires surrogates in utf-32
             return -1;
         }
 
         if (writing) {
-            if (charsWritten * sizeof *buf >= str32Size) {
+            if (codeUnitsWritten * sizeof *buf >= str32Size) {
                 return -1;
             }
 
@@ -222,15 +222,12 @@ static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t
             break;
         }
 
-        if ((ssize_t)convState != -3) { // utf-8 char is other than high surrogate
-            remainingStrBytes -= convState;
-            str8 += convState;
-        }
-
-        ++charsWritten;
+        remainingCodeUnits -= convState;
+        str8 += convState;
+        ++codeUnitsWritten;
     }
 
-    return (ssize_t)charsWritten;
+    return (ssize_t)codeUnitsWritten;
 }
 
 static ssize_t s8tows(wchar_t *restrict wstr, size_t wstrSize, const char8_t *restrict str8) {
@@ -295,21 +292,15 @@ static void prints32(const char32_t *restrict str) {
 }
 
 static void printws(const wchar_t *restrict str) {
-#ifdef _WIN32
-    // printf("%s", str) prints junk chars instead of str
-    wprintf(L"%ls", str);
-#else
-    // wprintf("%s", str) causes some later printing to be ignored, mode related?
     printf("%ls", str);
-#endif
 }
 
 
 int main(void) {
-    char8_t  str8[]  = u8"这是一次测试(8)";
-    char16_t str16[] =  u"这是一次测试(16)";
-    char32_t str32[] =  U"这是一次测试(32)";
-    wchar_t  wstr[]  =  L"这是一次测试(w)";
+    char8_t  str8[]  = u8"这是一次测试(8), Ā, 🞀";
+    char16_t str16[] =  u"这是一次测试(16), Ā, 🞀";
+    char32_t str32[] =  U"这是一次测试(32), Ā, 🞀";
+    wchar_t  wstr[]  =  L"这是一次测试(w), Ā, 🞀";
 
 #ifdef _WIN32
     // Only supported offically since Windows 10 1903 but may work before that since CP_UTF8 is defined on older systems,
@@ -335,7 +326,7 @@ int main(void) {
     printws(wstr);
     putchar('\n');
 
-    char8_t str8Buf[23];
+    char8_t str8Buf[33];
 
     printf("\nutf-16 as utf-8: ");
     memset(str8Buf, 0xFF, sizeof str8Buf);
@@ -368,7 +359,7 @@ int main(void) {
     putchar('\n');
 
 
-    char16_t str16Buf[11];
+    char16_t str16Buf[18];
 
     printf("\nutf-8 as utf-16:  ");
     memset(str16Buf, 0xFF, sizeof str16Buf);
@@ -403,7 +394,7 @@ int main(void) {
     putchar('\n');
 
 
-    char32_t str32Buf[11];
+    char32_t str32Buf[17];
 
     printf("\nutf-8 as utf-32:  ");
     memset(str32Buf, 0xFF, sizeof str32Buf);
@@ -438,7 +429,7 @@ int main(void) {
     putchar('\n');
 
 
-    wchar_t wstrBuf[11];
+    wchar_t wstrBuf[18];
 
     printf("\nutf-8 as wchar:  ");
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
