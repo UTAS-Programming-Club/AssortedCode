@@ -8,11 +8,12 @@
 #include <locale.h>     // for LC_ALL, setlocale
 #include <stddef.h>     // for size_t, wchar_t
 #include <stdio.h>      // for printf, putchar
-#include <string.h>     // for strlen
+#include <string.h>     // for memset, strlen
 #include <uchar.h>      // for char8_t, char16_t, char32_t, c16rtomb, c32rtomb, mbrtoc16, mbrtoc32
 #include <wchar.h>      // for mbstate_t, mbsrtowcs, wcslen, wcsrtombs
 
 #ifdef _WIN32
+#include <stdbool.h>    // for false, true
 #include <Windows.h>    // for CP_UTF8, SSIZE_T, SetConsoleOutputCP
 
 #define nullptr NULL
@@ -77,8 +78,8 @@ static size_t strlenw(const wchar_t *restrict str) {
 // not including the terminating null byte, or a -1 if an error occurred
 
 // TODO: Rewrite s16tos8/s32tos8 to avoid using strlen16/strlen32? Conversion loop can just check for terminator directly
+// TODO: Rewrite s16tos8/s32tos8 so c16rtomb/c32rtomb handle terminator
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
-// TODO: Add s16tos32, s16tows, s32tos16, s32tows, wstos16 & wstos32?
 
 static ssize_t s16tos8(char8_t *restrict buf, size_t bufSize, const char16_t *restrict str) {
     if (buf == nullptr || bufSize == 0) {
@@ -108,7 +109,7 @@ static ssize_t s16tos8(char8_t *restrict buf, size_t bufSize, const char16_t *re
     }
 
     if (buf != convBuf8) {
-        buf[0] = u8'\0';
+        buf[0] = '\0';
     }
 
     return (ssize_t)totalBytesWritten;
@@ -158,47 +159,50 @@ static ssize_t wstos8(char8_t *restrict buf, size_t bufSize, const wchar_t *rest
 }
 
 
+// These functions return the number of chars that have (or would have if buf or bufSize are 0) been written to buf,
+// not including the terminating null byte, or a -1 if an error occurred
+
+// TODO: Rewrite s8tos16 and s8tos32 to make sure mbrtoc16/mbrtoc32 never writes beyond the end of buf
+// TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
+// TODO: Add s16tos32, s16tows, s32tos16, s32tows, wstos16 & wstos32
+// TOOD: Detect undersized buf in s8tows, sometimes mbsrtowcs reports success when it shouldn't
+
 static ssize_t s8tos16(char16_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
     if (buf == nullptr || bufSize == 0) {
         buf = convBuf16;
         bufSize = sizeof convBuf16;
     }
 
-    size_t remainingStrBytes = strlen8(str);
+    size_t remainingStrBytes = strlen8(str) + 1;
     mbstate_t state = { 0 };
-    size_t totalBytesWritten = 0;
+    size_t totalCharsWritten = 0;
 
-    while(true) {
-        size_t convState = mbrtoc16(buf, (const char *restrict)str, remainingStrBytes, &state);
+    bool foundTerminator = true;
+    while (foundTerminator) {
+        size_t convState = mbrtoc16(buf + totalCharsWritten, (const char *restrict)str, remainingStrBytes, &state);
         switch ((ssize_t)convState) {
-            case -3: // High surrogate written
-                ++totalBytesWritten;
-                break;
-            case -2: // next utf-8 char is truncated
-            case -1: // next utf-8 char is invalid
-                return -1;
-            default:
-                remainingStrBytes -= convState;
-                str += convState;
-                ++totalBytesWritten;
-                break;
+        case -3: // High surrogate written
+            ++totalCharsWritten;
+            break;
+        case -2: // next utf-8 char is truncated
+        case -1: // next utf-8 char is invalid
+            return -1;
+        case 0:  // terminator found
+            foundTerminator = false;
+            break;
+        default:
+            remainingStrBytes -= convState;
+            str += convState;
+            ++totalCharsWritten;
+            break;
         }
 
-        if (buf == convBuf16) {
-            continue;
-        }
-
-        ++buf;
-        if (totalBytesWritten >= bufSize) {
+        if (buf != convBuf16 && totalCharsWritten * sizeof *buf >= bufSize) {
             return -1;
         }
     }
 
-    if (buf != convBuf16) {
-        buf[0] = u'\0';
-    }
-
-    return (ssize_t)totalBytesWritten;
+    return (ssize_t)totalCharsWritten;
 }
 
 static ssize_t s8tos32(char32_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
@@ -207,41 +211,36 @@ static ssize_t s8tos32(char32_t *restrict buf, size_t bufSize, const char8_t *re
         bufSize = sizeof convBuf32;
     }
 
-    size_t remainingStrBytes = strlen8(str);
+    size_t remainingStrBytes = strlen8(str) + 1;
     mbstate_t state = { 0 };
-    size_t totalBytesWritten = 0;
+    size_t totalCharsWritten = 0;
 
-    while(true) {
-        size_t convState = mbrtoc32(buf, (const char *restrict)str, remainingStrBytes, &state);
+    bool foundTerminator = true;
+    while (foundTerminator) {
+        size_t convState = mbrtoc32(buf + totalCharsWritten, (const char *restrict)str, remainingStrBytes, &state);
         switch ((ssize_t)convState) {
-            case -3: // High surrogate written
-                ++totalBytesWritten;
-                break;
-            case -2: // next utf-8 char is truncated
-            case -1: // next utf-8 char is invalid
-                return -1;
-            default:
-                remainingStrBytes -= convState;
-                str += convState;
-                ++totalBytesWritten;
-                break;
+        case -3: // High surrogate written
+            ++totalCharsWritten;
+            break;
+        case -2: // next utf-8 char is truncated
+        case -1: // next utf-8 char is invalid
+            return -1;
+        case 0:  // terminator found
+            foundTerminator = false;
+            break;
+        default:
+            remainingStrBytes -= convState;
+            str += convState;
+            ++totalCharsWritten;
+            break;
         }
 
-        if (buf == convBuf32) {
-            continue;
-        }
-
-        ++buf;
-        if (totalBytesWritten >= bufSize) {
+        if (buf != convBuf32 && totalCharsWritten * sizeof *buf >= bufSize) {
             return -1;
         }
     }
 
-    if (buf != convBuf32) {
-        buf[0] = U'\0';
-    }
-
-    return (ssize_t)totalBytesWritten;
+    return (ssize_t)totalCharsWritten;
 }
 
 static ssize_t s8tows(wchar_t *restrict buf, size_t bufSize, const char8_t *restrict str) {
@@ -318,9 +317,9 @@ static void printws(const wchar_t *restrict str) {
 
 int main(void) {
     char8_t  str8[]  = u8"这是一次测试(8)";
-    char16_t str16[] = u"这是一次测试(16)";
-    char32_t str32[] = U"这是一次测试(32)";
-    wchar_t  wstr[]  = L"这是一次测试(w)";
+    char16_t str16[] =  u"这是一次测试(16)";
+    char32_t str32[] =  U"这是一次测试(32)";
+    wchar_t  wstr[]  =  L"这是一次测试(w)";
 
 #ifdef _WIN32
     // Only supported offically since Windows 10 1903 but may work before that since CP_UTF8 is defined on older systems,
@@ -346,99 +345,140 @@ int main(void) {
     printws(wstr);
     putchar('\n');
 
-    char8_t str8Buf[sizeof str8];
+    char8_t str8Buf[23];
 
     printf("\nutf-16 as utf-8: ");
-    str8Buf[0] = u8'\0';
-    s16tos8(str8Buf, sizeof str8Buf, str16);
-    prints8(str8Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints8(str8Buf);
+    }
     putchar('\n');
 
     printf("utf-32 as utf-8: ");
-    str8Buf[0] = u8'\0';
-    s32tos8(str8Buf, sizeof str8Buf, str32);
-    prints8(str8Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints8(str8Buf);
+    }
     putchar('\n');
 
     printf("wchar as utf-8:  ");
-    str8Buf[0] = u8'\0';
-    wstos8(str8Buf, sizeof str8Buf, wstr);
-    prints8(str8Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints8(str8Buf);
+    }
     putchar('\n');
 
 
-    char16_t str16Buf[sizeof str8];
+    char16_t str16Buf[11];
 
     printf("\nutf-8 as utf-16:  ");
-    str8Buf[0] = u8'\0';
-    str16Buf[0] = u'\0';
-    s8tos16(str16Buf, sizeof str16Buf, str8);
-    prints16(str16Buf);
+    memset(str16Buf, 0xFF, sizeof str16Buf);
+    if (s8tos16(str16Buf, sizeof str16Buf, str8) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints16(str16Buf);
+    }
     putchar('\n');
 
     printf("utf-32 as utf-16: ");
-    str8Buf[0] = u'\0';
-    str16Buf[0] = u'\0';
-    s32tos8(str8Buf, sizeof str8Buf, str32);
-    s8tos16(str16Buf, sizeof str16Buf, str8Buf);
-    prints16(str16Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(str16Buf, 0xFF, sizeof str16Buf);
+    if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1 || s8tos16(str16Buf, sizeof str16Buf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints16(str16Buf);
+    }
     putchar('\n');
 
     printf("wchar as utf-16:  ");
-    str8Buf[0] = u'\0';
-    str16Buf[0] = u'\0';
-    wstos8(str8Buf, sizeof str8Buf, wstr);
-    s8tos16(str16Buf, sizeof str16Buf, str8Buf);
-    prints16(str16Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(str16Buf, 0xFF, sizeof str16Buf);
+    if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1 || s8tos16(str16Buf, sizeof str16Buf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints16(str16Buf);
+    }
     putchar('\n');
 
 
-    char32_t str32Buf[sizeof str8];
+    char32_t str32Buf[11];
 
     printf("\nutf-8 as utf-32:  ");
-    str32Buf[0] = U'\0';
-    s8tos32(str32Buf, sizeof str32Buf, str8);
-    prints32(str32Buf);
+    memset(str32Buf, 0xFF, sizeof str32Buf);
+    if (s8tos32(str32Buf, sizeof str32Buf, str8) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints32(str32Buf);
+    }
     putchar('\n');
 
     printf("utf-16 as utf-32: ");
-    str8Buf[0] = u'\0';
-    str32Buf[0] = U'\0';
-    s16tos8(str8Buf, sizeof str8Buf, str16);
-    s8tos32(str32Buf, sizeof str32Buf, str8Buf);
-    prints32(str32Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(str32Buf, 0xFF, sizeof str32Buf);
+    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1 || s8tos32(str32Buf, sizeof str32Buf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints32(str32Buf);
+    }
     putchar('\n');
 
     printf("wchar as utf-32:  ");
-    str8Buf[0] = u'\0';
-    str32Buf[0] = U'\0';
-    wstos8(str8Buf, sizeof str8Buf, wstr);
-    s8tos32(str32Buf, sizeof str32Buf, str8Buf);
-    prints32(str32Buf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(str32Buf, 0xFF, sizeof str32Buf);
+    if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1 || s8tos32(str32Buf, sizeof str32Buf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        prints32(str32Buf);
+    }
     putchar('\n');
 
 
-    wchar_t wstrBuf[sizeof str8];
+    wchar_t wstrBuf[11];
 
     printf("\nutf-8 as wchar:  ");
-    wstrBuf[0] = U'\0';
-    s8tows(wstrBuf, sizeof wstrBuf, str8);
-    printws(wstrBuf);
+    memset(wstrBuf, 0xFF, sizeof wstrBuf);
+    if (s8tows(wstrBuf, sizeof wstrBuf, str8) == -1) {
+        printf("Failed");
+    }
+    else {
+        printws(wstrBuf);
+    }
     putchar('\n');
 
     printf("utf-16 as wchar: ");
-    str8Buf[0] = u'\0';
-    wstrBuf[0] = U'\0';
-    s16tos8(str8Buf, sizeof str8Buf, str16);
-    s8tows(wstrBuf, sizeof wstrBuf, str8Buf);
-    printws(wstrBuf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(wstrBuf, 0xFF, sizeof wstrBuf);
+    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        printws(wstrBuf);
+    }
     putchar('\n');
 
     printf("utf-32 as wchar: ");
-    str8Buf[0] = u'\0';
-    wstrBuf[0] = U'\0';
-    s32tos8(str8Buf, sizeof str8Buf, str32);
-    s8tows(wstrBuf, sizeof wstrBuf, str8Buf);
-    printws(wstrBuf);
+    memset(str8Buf, 0xFF, sizeof str8Buf);
+    memset(wstrBuf, 0xFF, sizeof wstrBuf);
+    if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
+        printf("Failed");
+    }
+    else {
+        printws(wstrBuf);
+    }
     putchar('\n');
 }
