@@ -10,7 +10,7 @@
 #include <stdio.h>      // for printf, putchar
 #include <string.h>     // for memset, memcpy, strlen
 #include <uchar.h>      // for char8_t, char16_t, char32_t, c16rtomb, c32rtomb, mbrtoc16, mbrtoc32
-#include <wchar.h>      // for mbstate_t, mbsrtowcs, wcslen, wcsrtombs
+#include <wchar.h>      // for mbstate_t, mbsrtowcs, wcslen, wcsrtombs, wmemcpy
 
 #ifdef _WIN32
 #include <stdbool.h>    // for bool, true
@@ -35,11 +35,18 @@ static char16_t convBuf16[2];
 // TODO: Confirm 1 char is fine, all chars are meant to fit in 1 utf-32 code point but mbrtoc32 outputs a "variable-length 32-bit wide character"
 static char32_t convBuf32[1];
 
+// utf-16 surrogate range
+static const char16_t highSurrogateStart = 0xD800;
+static const char16_t highSurrogateEnd   = 0xDBFF;
+static const char16_t lowSurrogateStart  = 0xDC00;
+static const char16_t lowSurrogateEnd    = 0xDFFF;
+
+
 static void printws(const wchar_t *restrict str);
 static size_t strlenw(const wchar_t *restrict str);
 
 
-// These functions returns the number of bytes in string
+// These functions returns the number of bytes in string, not including the null terminator
 
 static size_t strlen8(const char8_t *restrict str) {
     return strlen((const char *)str);
@@ -154,7 +161,7 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 // not including the terminating null byte, or a -1 if an error occurred
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
-// TODO: Add s16tos32, s16tows, s32tos16, s32tows, wstos16 & wstos32
+// TODO: Add s16tows, s32tos16, s32tows & wstos16
 // TOOD: Detect undersized buf in s8tows, sometimes mbsrtowcs reports success when it shouldn't
 
 static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t *restrict str8) {
@@ -237,6 +244,66 @@ static ssize_t s8tows(wchar_t *restrict wstr, size_t wstrSize, const char8_t *re
 
     mbstate_t state = { 0 };
     return (ssize_t)mbsrtowcs(wstr, (const char **restrict)&str8, wstrSize, &state);
+}
+
+static ssize_t s16tos32(char32_t *restrict str32, size_t str32Size, const char16_t *restrict str16) {
+    size_t codeUnitsWritten = 0;
+    bool writing = str32 != nullptr && str32Size != 0;
+
+    while (true) {
+        char32_t codeUnit = str16[0];
+
+        if (codeUnit >= highSurrogateStart && codeUnit <= highSurrogateEnd) { // utf-16 code unit is high surrogate
+            char16_t highSurrogate = str16[0];
+            char16_t lowSurrogate = str16[1];
+            if (lowSurrogate < lowSurrogateStart || lowSurrogate > lowSurrogateEnd) { // next utf-16 code unit is not expected low surrogate
+                return 1;
+            }
+
+            highSurrogate = (char16_t)((highSurrogate - highSurrogateStart) * 0x400u);
+            lowSurrogate -= lowSurrogateStart;
+            codeUnit = highSurrogate + lowSurrogate + 0x10000u;
+            if (codeUnit >= highSurrogateStart && codeUnit <= lowSurrogateEnd) { // encoded utf-32 code unit is surrogate
+                return 1;
+            }
+
+            ++str16;
+        } else if (codeUnit >= lowSurrogateStart && codeUnit <= lowSurrogateEnd) { // utf-16 code unit is low surrogate without leading high surrogate
+            return -1;
+        }
+
+        if (writing) {
+            if (codeUnitsWritten * sizeof *str32 >= str32Size) {
+                return -1;
+            }
+
+            str32[codeUnitsWritten] = codeUnit;
+        }
+
+        if (codeUnit == u'\0') { // utf-16 code unit is terminator
+            break;
+        }
+
+        ++str16;
+        ++codeUnitsWritten;
+    }
+
+    return (ssize_t)codeUnitsWritten;
+}
+
+static ssize_t wstos32(char32_t *restrict str32, size_t str32Size, const wchar_t *restrict wstr) {
+#ifdef _WIN32
+    return s16tos32(str32, str32Size, wstr);
+#else
+    size_t wstrLen = strlenw(wstr);
+    if (wstrLen > str32Size) {
+        return -1;
+    }
+
+    // Add one to account for '\0'
+    wmemcpy((wchar_t *restrict)str32, wstr, wstrLen + 1);
+    return (ssize_t)wstrLen;
+#endif
 }
 
 
@@ -407,9 +474,8 @@ int main(void) {
     putchar('\n');
 
     printf("utf-16 as utf-32: ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
     memset(str32Buf, 0xFF, sizeof str32Buf);
-    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1 || s8tos32(str32Buf, sizeof str32Buf, str8Buf) == -1) {
+    if (s16tos32(str32Buf, sizeof str32Buf, str16) == -1) {
         printf("Failed");
     }
     else {
@@ -418,9 +484,8 @@ int main(void) {
     putchar('\n');
 
     printf("wchar as utf-32:  ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
     memset(str32Buf, 0xFF, sizeof str32Buf);
-    if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1 || s8tos32(str32Buf, sizeof str32Buf, str8Buf) == -1) {
+    if (wstos32(str32Buf, sizeof str32Buf, wstr) == -1) {
         printf("Failed");
     }
     else {
