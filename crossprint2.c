@@ -56,7 +56,7 @@ static size_t strlenw(const wchar_t *restrict str);
 // These functions returns the number of bytes in string, not including the null terminator
 
 static size_t strlen8(const char8_t *restrict str) {
-    return strlen((const char *)str);
+    return strlen((const char *restrict)str);
 }
 
 static size_t strlen16(const char16_t *restrict str) {
@@ -166,13 +166,16 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 
 // These functions return the number of code units that have (or would have if strX or strXSize are 0) been written to str,
 // not including the terminating null byte, or a -1 if an error occurred
+// Note that the size params are in bytes, not code units
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
-// TODO: Add s16tows & s32tows
 // TOOD: Detect undersized buf in s8tows, sometimes mbsrtowcs reports success when it shouldn't
+// TODO: Make sure dst being nullptr and/or dst size being 0 are handled correctly
+// TODO: Make sure dst size is always expected to be in bytes
 
 static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t *restrict str8) {
     mbstate_t state = { 0 };
+    // Add 1 to account for '\0'
     size_t remainingCodeUnit8s = strlen8(str8) + 1;
     size_t codeUnit16sWritten = 0;
 
@@ -211,6 +214,7 @@ static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t
 
 static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t *restrict str8) {
     mbstate_t state = { 0 };
+    // Add 1 to account for '\0'
     size_t remainingCodeUnit8s = strlen8(str8) + 1;
     size_t codeUnit32sWritten = 0;
 
@@ -247,6 +251,8 @@ static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t
 static ssize_t s8tows(wchar_t *restrict wstr, size_t wstrSize, const char8_t *restrict str8) {
     if (wstrSize == 0) {
         wstr = nullptr;
+    } else {
+        wstrSize /= sizeof *wstr;
     }
 
     mbstate_t state = { 0 };
@@ -295,6 +301,21 @@ static ssize_t s16tos32(char32_t *restrict str32, size_t str32Size, const char16
     return (ssize_t)codeUnit32sWritten;
 }
 
+static ssize_t s16tows(wchar_t *restrict wstr, size_t wstrSize, const char16_t *restrict str16) {
+#if WCHAR_WIDTH == 16
+    size_t str16Len = strlen16(str16);
+    if (str16Len >= wstrSize) {
+        return -1;
+    }
+
+    // Add 1 to account for u'\0'
+    wmemcpy(wstr, (const wchar_t *restrict)str16, str16Len + 1);
+    return (ssize_t)str16Len;
+#else
+    return s16tos32((char32_t *restrict)wstr, wstrSize, str16);
+#endif
+}
+
 static ssize_t s32tos16(char16_t *restrict str16, size_t str16Size, const char32_t *restrict str32) {
     size_t codeUnit16sWritten = 0;
     bool writing = str16 != nullptr && str16Size != 0;
@@ -338,16 +359,24 @@ static ssize_t s32tos16(char16_t *restrict str16, size_t str16Size, const char32
     return (ssize_t)codeUnit16sWritten;
 }
 
-static ssize_t wstos16(char16_t *restrict str16, size_t str16Size, const wchar_t *restrict wstr) {
+static ssize_t s32tows(wchar_t *restrict wstr, size_t wstrSize, const char32_t *restrict str32) {
 #if WCHAR_WIDTH == 16
-    size_t wstrLen = strlenw(wstr);
-    if (wstrLen > str16Size) {
+    return s32tos16((char16_t *restrict)wstr, wstrSize, str32);
+#else
+    size_t str32Len = strlen32(str32);
+    if (str32Len >= wstrSize) {
         return -1;
     }
 
-    // Add one to account for '\0'
-    wmemcpy((wchar_t *restrict)str16, wstr, wstrLen + 1);
-    return (ssize_t)wstrLen;
+    // Add 1 to account for U'\0'
+    wmemcpy(wstr, (wchar_t *restrict)str32, str32Len + 1);
+    return (ssize_t)str32Len;
+#endif
+}
+
+static ssize_t wstos16(char16_t *restrict str16, size_t str16Size, const wchar_t *restrict wstr) {
+#if WCHAR_WIDTH == 16
+    return s16tows((wchar_t *restrict)str16, str16Size, (const char16_t *restrict)wstr);
 #else
     return s32tos16(str16, str16Size, (const char32_t *restrict)wstr);
 #endif
@@ -355,16 +384,9 @@ static ssize_t wstos16(char16_t *restrict str16, size_t str16Size, const wchar_t
 
 static ssize_t wstos32(char32_t *restrict str32, size_t str32Size, const wchar_t *restrict wstr) {
 #if WCHAR_WIDTH == 16
-    return s16tos32((char32_t *restrict)str32, str32Size, wstr);
+    return s16tos32(str32, str32Size, (char16_t *restrict)wstr);
 #else
-    size_t wstrLen = strlenw(wstr);
-    if (wstrLen > str32Size) {
-        return -1;
-    }
-
-    // Add one to account for '\0'
-    wmemcpy((wchar_t *restrict)str32, wstr, wstrLen + 1);
-    return (ssize_t)wstrLen;
+    return s32tows((wchar_t *restrict)str32, str32Size, (const char32_t *restrict)wstr);
 #endif
 }
 
@@ -382,7 +404,7 @@ static void prints16(const char16_t *restrict str) {
         return;
     }
 
-    // Add one to account for '\0'
+    // Add 1 to account for '\0'
     char8_t str8[str8Size + 1];
     ssize_t str8Len = s16tos8(str8, sizeof str8, str);
     if (str8Len < 0) {
@@ -400,7 +422,7 @@ static void prints32(const char32_t *restrict str) {
         return;
     }
 
-    // Add one to account for '\0'
+    // Add 1 to account for '\0'
     str8Size += 1;
     char8_t *str8 = malloc(str8Size);
     if (str8 == nullptr) {
@@ -426,10 +448,10 @@ static void printws(const wchar_t *restrict str) {
 
 
 int main(void) {
-    char8_t  str8[]  = u8"这是一次测试(8), Ā, 🞀";
-    char16_t str16[] =  u"这是一次测试(16), Ā, 🞀";
-    char32_t str32[] =  U"这是一次测试(32), Ā, 🞀";
-    wchar_t  wstr[]  =  L"这是一次测试(w), Ā, 🞀";
+    char8_t  str8[]  = u8"这是一次测试, Ā, 🞀(8)";
+    char16_t str16[] =  u"这是一次测试, Ā, 🞀(16)";
+    char32_t str32[] =  U"这是一次测试, Ā, 🞀(32)";
+    wchar_t  wstr[]  =  L"这是一次测试, Ā, 🞀(w)";
 
 #ifdef _WIN32
     // Only supported offically since Windows 10 1903 but may work before that since CP_UTF8 is defined on older systems,
@@ -557,9 +579,8 @@ int main(void) {
     putchar('\n');
 
     printf("utf-16 as wchar: ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
-    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
+    if (s16tows(wstrBuf, sizeof wstrBuf, str16) == -1) {
         printf("Failed");
     } else {
         printws(wstrBuf);
@@ -567,9 +588,8 @@ int main(void) {
     putchar('\n');
 
     printf("utf-32 as wchar: ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
-    if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
+    if (s32tows(wstrBuf, sizeof wstrBuf, str32) == -1) {
         printf("Failed");
     } else {
         printws(wstrBuf);
