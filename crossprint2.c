@@ -1,4 +1,4 @@
-// Tested on Linux x86_64 via gcc14 -std=c23 and Windows x86_64 with newest visual studio C install as of 20260511
+// Tested on Linux x86_64 via gcc14 -std=c23 and Windows x86_64 with newest Visual Studio C install as of 20260513
 // Licensed under MIT.
 
 #ifdef _WIN32
@@ -309,7 +309,7 @@ static ssize_t s32tos16(char16_t *restrict str16, size_t str16Size, const char32
             // high surrogate = codeUnit32 / 0x400 + 0xD800 = codeUnit32 >> 10 + 0xD800
             // low surrogate = codeUnit32 % 0x400 + 0xDC00 = codeUnit32 ^ ((codeUnit32 >> 10) << 10) + 0xDC00
             codeUnit16High = (char16_t)(codeUnit32 >> highSurrogateShift);
-            codeUnit16Low = (char16_t)(codeUnit32 ^ (codeUnit16High << highSurrogateShift)) + lowSurrogateStart;
+            codeUnit16Low = (char16_t)(codeUnit32 ^ (char32_t)(codeUnit16High << highSurrogateShift)) + lowSurrogateStart;
             codeUnit16High += highSurrogateStart;
         } else {
             codeUnit16High = (char16_t)codeUnit32;
@@ -346,7 +346,7 @@ static ssize_t wstos16(char16_t *restrict str16, size_t str16Size, const wchar_t
     }
 
     // Add one to account for '\0'
-    wmemcpy((wchar_t* restrict)str16, wstr, wstrLen + 1);
+    wmemcpy((wchar_t *restrict)str16, wstr, wstrLen + 1);
     return (ssize_t)wstrLen;
 #else
     return s32tos16(str16, str16Size, (const char32_t *restrict)wstr);
@@ -461,8 +461,7 @@ int main(void) {
     memset(str8Buf, 0xFF, sizeof str8Buf);
     if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints8(str8Buf);
     }
     putchar('\n');
@@ -471,8 +470,7 @@ int main(void) {
     memset(str8Buf, 0xFF, sizeof str8Buf);
     if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints8(str8Buf);
     }
     putchar('\n');
@@ -481,8 +479,7 @@ int main(void) {
     memset(str8Buf, 0xFF, sizeof str8Buf);
     if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints8(str8Buf);
     }
     putchar('\n');
@@ -494,8 +491,7 @@ int main(void) {
     memset(str16Buf, 0xFF, sizeof str16Buf);
     if (s8tos16(str16Buf, sizeof str16Buf, str8) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints16(str16Buf);
     }
     putchar('\n');
@@ -504,8 +500,7 @@ int main(void) {
     memset(str16Buf, 0xFF, sizeof str16Buf);
     if (s32tos16(str16Buf, sizeof str16Buf, str32) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints16(str16Buf);
     }
     putchar('\n');
@@ -514,8 +509,7 @@ int main(void) {
     memset(str16Buf, 0xFF, sizeof str16Buf);
     if (wstos16(str16Buf, sizeof str16Buf, wstr) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints16(str16Buf);
     }
     putchar('\n');
@@ -527,8 +521,7 @@ int main(void) {
     memset(str32Buf, 0xFF, sizeof str32Buf);
     if (s8tos32(str32Buf, sizeof str32Buf, str8) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints32(str32Buf);
     }
     putchar('\n');
@@ -537,8 +530,7 @@ int main(void) {
     memset(str32Buf, 0xFF, sizeof str32Buf);
     if (s16tos32(str32Buf, sizeof str32Buf, str16) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints32(str32Buf);
     }
     putchar('\n');
@@ -547,8 +539,7 @@ int main(void) {
     memset(str32Buf, 0xFF, sizeof str32Buf);
     if (wstos32(str32Buf, sizeof str32Buf, wstr) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         prints32(str32Buf);
     }
     putchar('\n');
@@ -560,8 +551,7 @@ int main(void) {
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s8tows(wstrBuf, sizeof wstrBuf, str8) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         printws(wstrBuf);
     }
     putchar('\n');
@@ -571,8 +561,7 @@ int main(void) {
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         printws(wstrBuf);
     }
     putchar('\n');
@@ -582,8 +571,7 @@ int main(void) {
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1 || s8tows(wstrBuf, sizeof wstrBuf, str8Buf) == -1) {
         printf("Failed");
-    }
-    else {
+    } else {
         printws(wstrBuf);
     }
     putchar('\n');
