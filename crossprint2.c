@@ -15,7 +15,7 @@
 
 #ifdef _WIN32
 #include <stdbool.h>    // for bool, true
-#include <Windows.h>    // for CP_UTF8, SSIZE_T, SetConsoleOutputCP
+#include <windows.h>    // for CP_UTF8, SSIZE_T, SetConsoleOutputCP
 
 #define WCHAR_WIDTH 16
 #define nullptr NULL
@@ -53,7 +53,7 @@ static void printws(const wchar_t *restrict str);
 static size_t strlenw(const wchar_t *restrict str);
 
 
-// These functions returns the number of bytes in string, not including the null terminator
+// These functions returns the number of code units in string, not including the null terminator
 
 static size_t strlen8(const char8_t *restrict str) {
     return strlen((const char *restrict)str);
@@ -93,7 +93,9 @@ static size_t strlenw(const wchar_t *restrict str) {
 
 // TODO: Make sure compound chars like emoji work (e.g. face + skin colour) for all of these
 // TODO: Check if wcsrtombs also has an issue with an undersized output buffer like mbsrtowcs
+// TODO: Replace missing mingw-w64 functions: c16rtomb, c32rtomb, mbrtoc16, mbrtoc32
 
+#ifndef __MINGW64__
 static ssize_t s16tos8(char8_t *restrict str8, size_t str8Size, const char16_t *restrict str16) {
     mbstate_t state = { 0 };
     size_t codeUnitsWritten = 0;
@@ -153,6 +155,7 @@ static ssize_t s32tos8(char8_t *restrict str8, size_t str8Size, const char32_t *
 
     return (ssize_t)codeUnitsWritten;
 }
+#endif
 
 static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *restrict wstr) {
     if (str8Size == 0) {
@@ -173,6 +176,7 @@ static ssize_t wstos8(char8_t *restrict str8, size_t str8Size, const wchar_t *re
 // TODO: Make sure dst being nullptr and/or dst size being 0 are handled correctly
 // TODO: Make sure dst size is always expected to be in bytes
 
+#ifndef __MINGW64__
 static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t *restrict str8) {
     mbstate_t state = { 0 };
     // Add 1 to account for '\0'
@@ -247,6 +251,7 @@ static ssize_t s8tos32(char32_t *restrict str32, size_t str32Size, const char8_t
 
     return (ssize_t)codeUnit32sWritten;
 }
+#endif
 
 static ssize_t s8tows(wchar_t *restrict wstr, size_t wstrSize, const char8_t *restrict str8) {
     if (wstrSize == 0) {
@@ -415,6 +420,7 @@ static void prints16(const char16_t *restrict str) {
 #endif
 }
 
+#ifndef __MINGW64__
 static void prints32(const char32_t *restrict str) {
 #if WCHAR_WIDTH == 16
     ssize_t str8Size = s32tos8(nullptr, 0, str);
@@ -441,17 +447,36 @@ static void prints32(const char32_t *restrict str) {
     printws((const wchar_t *restrict)str);
 #endif
 }
+#endif
 
 static void printws(const wchar_t *restrict str) {
+  // TODO: Figure out why this is needed for any output, even if still wrong
+#ifdef __MINGW64__
+    wprintf(L"%ls", str);
+#else
     printf("%ls", str);
+#endif
 }
 
 
+// TODO: Support wchar_t blocks
+#define _cat(a, b) a ## b
+#define cat(a, b) _cat(a, b)
+#define convert(startWidth, endWidth) \
+    printf("utf-" #startWidth " as utf-" #endWidth ": "); \
+    memset(cat(cat(str, endWidth), Buf), 0xFF, sizeof cat(cat(str, endWidth), Buf)); \
+    if (cat(cat(cat(s, startWidth), tos), endWidth)(cat(cat(str, endWidth), Buf), sizeof cat(cat(str, endWidth), Buf), cat(str, startWidth)) == -1) { \
+        printf("Failed"); \
+    } else { \
+        cat(prints, endWidth)(cat(cat(str, endWidth), Buf)); \
+    } \
+    putchar('\n')
+
 int main(void) {
-    char8_t  str8[]  = u8"这是一次测试, Ā, 🞀(8)";
-    char16_t str16[] =  u"这是一次测试, Ā, 🞀(16)";
-    char32_t str32[] =  U"这是一次测试, Ā, 🞀(32)";
-    wchar_t  wstr[]  =  L"这是一次测试, Ā, 🞀(w)";
+    char8_t  str8[]  = u8"这是一次测试, Ā, 🞀, a\u0304, 👨🏻‍👩🏽‍👧🏼‍👦🏾 (8)";
+    char16_t str16[] =  u"这是一次测试, Ā, 🞀, a\u0304, 👨🏻‍👩🏽‍👧🏼‍👦🏾 (16)";
+    char32_t str32[] =  U"这是一次测试, Ā, 🞀, a\u0304, 👨🏻‍👩🏽‍👧🏼‍👦🏾 (32)";
+    wchar_t  wstr[]  =  L"这是一次测试, Ā, 🞀, a\u0304, 👨🏻‍👩🏽‍👧🏼‍👦🏾 (w)";
 
 #ifdef _WIN32
     // Only supported offically since Windows 10 1903 but may work before that since CP_UTF8 is defined on older systems,
@@ -469,34 +494,28 @@ int main(void) {
     prints16(str16);
     putchar('\n');
 
+#ifndef __MINGW64__
     printf("utf-32: ");
     prints32(str32);
     putchar('\n');
+#endif
 
     printf("wchar:  ");
     printws(wstr);
     putchar('\n');
 
-    char8_t str8Buf[33];
+    char8_t str8Buf[82];
 
-    printf("\nutf-16 as utf-8: ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
-    if (s16tos8(str8Buf, sizeof str8Buf, str16) == -1) {
-        printf("Failed");
-    } else {
-        prints8(str8Buf);
-    }
     putchar('\n');
+#ifndef __MINGW64__
+    printf("%zd\n", s16tos8(nullptr, 0, str16));
+    convert(16, 8);
+    printf("%zd\n", s32tos8(nullptr, 0, str32));
+    convert(32, 8);
+#endif
 
-    printf("utf-32 as utf-8: ");
-    memset(str8Buf, 0xFF, sizeof str8Buf);
-    if (s32tos8(str8Buf, sizeof str8Buf, str32) == -1) {
-        printf("Failed");
-    } else {
-        prints8(str8Buf);
-    }
-    putchar('\n');
-
+    // TODO: Fix -1 with mingw-w64
+    printf("%zd\n", wstos8(nullptr, 0, wstr));
     printf("wchar as utf-8:  ");
     memset(str8Buf, 0xFF, sizeof str8Buf);
     if (wstos8(str8Buf, sizeof str8Buf, wstr) == -1) {
@@ -507,26 +526,21 @@ int main(void) {
     putchar('\n');
 
 
-    char16_t str16Buf[18];
+    // TODO: Figure out why 33/34 are returned fromm s*tos16(0, 0, *) but 44 instead of 34 + 1 = 35 is required on Linux gcc
+    char16_t str16Buf[44];
 
-    printf("\nutf-8 as utf-16:  ");
-    memset(str16Buf, 0xFF, sizeof str16Buf);
-    if (s8tos16(str16Buf, sizeof str16Buf, str8) == -1) {
-        printf("Failed");
-    } else {
-        prints16(str16Buf);
-    }
     putchar('\n');
+#ifndef __MINGW64__
+    // TODO: Fix crash with Linux gcc
+    // printf("%zd\n", s8tos16(nullptr, 0, str8));
+    convert(8, 16);
+#endif
 
-    printf("utf-32 as utf-16: ");
-    memset(str16Buf, 0xFF, sizeof str16Buf);
-    if (s32tos16(str16Buf, sizeof str16Buf, str32) == -1) {
-        printf("Failed");
-    } else {
-        prints16(str16Buf);
-    }
-    putchar('\n');
+    printf("%zd\n", s32tos16(nullptr, 0, str32));
+    convert(32, 16);
 
+    // TODO: Fix -1 with mingw-w64
+    printf("%zd\n", wstos16(nullptr, 0, wstr));
     printf("wchar as utf-16:  ");
     memset(str16Buf, 0xFF, sizeof str16Buf);
     if (wstos16(str16Buf, sizeof str16Buf, wstr) == -1) {
@@ -537,26 +551,17 @@ int main(void) {
     putchar('\n');
 
 
-    char32_t str32Buf[17];
+#ifndef __MINGW64__
+    char32_t str32Buf[35];
 
-    printf("\nutf-8 as utf-32:  ");
-    memset(str32Buf, 0xFF, sizeof str32Buf);
-    if (s8tos32(str32Buf, sizeof str32Buf, str8) == -1) {
-        printf("Failed");
-    } else {
-        prints32(str32Buf);
-    }
     putchar('\n');
+    printf("%zd\n", s8tos32(nullptr, 0, str8));
+    convert(8, 32);
+    printf("%zd\n", s16tos32(nullptr, 0, str16));
+    convert(16, 32);
 
-    printf("utf-16 as utf-32: ");
-    memset(str32Buf, 0xFF, sizeof str32Buf);
-    if (s16tos32(str32Buf, sizeof str32Buf, str16) == -1) {
-        printf("Failed");
-    } else {
-        prints32(str32Buf);
-    }
-    putchar('\n');
-
+    // TODO: Fix -1 with Linux gcc
+    printf("%zd\n", wstos32(nullptr, 0, wstr));
     printf("wchar as utf-32:  ");
     memset(str32Buf, 0xFF, sizeof str32Buf);
     if (wstos32(str32Buf, sizeof str32Buf, wstr) == -1) {
@@ -565,11 +570,15 @@ int main(void) {
         prints32(str32Buf);
     }
     putchar('\n');
+#endif
 
 
-    wchar_t wstrBuf[18];
+    wchar_t wstrBuf[80];
 
-    printf("\nutf-8 as wchar:  ");
+    putchar('\n');
+    // TODO: Figure out why this returns 80 with mingw-w64
+    printf("%zd\n", s8tows(nullptr, 0, str8));
+    printf("utf-8 as wchar:  ");
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s8tows(wstrBuf, sizeof wstrBuf, str8) == -1) {
         printf("Failed");
@@ -578,6 +587,8 @@ int main(void) {
     }
     putchar('\n');
 
+    // TODO: Fix -1 with mingw-w64
+    printf("%zd\n", s16tows(nullptr, 0, str16));
     printf("utf-16 as wchar: ");
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s16tows(wstrBuf, sizeof wstrBuf, str16) == -1) {
@@ -587,6 +598,8 @@ int main(void) {
     }
     putchar('\n');
 
+    // TODO: Fix -1 with Linux gcc
+    printf("%zd\n", s32tows(nullptr, 0, str32));
     printf("utf-32 as wchar: ");
     memset(wstrBuf, 0xFF, sizeof wstrBuf);
     if (s32tows(wstrBuf, sizeof wstrBuf, str32) == -1) {
