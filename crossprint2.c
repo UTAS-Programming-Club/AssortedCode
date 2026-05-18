@@ -7,7 +7,7 @@
 
 #include <locale.h>     // for LC_ALL, setlocale
 #include <stddef.h>     // for size_t, wchar_t
-#include <stdint.h>     // for WCHAR_WIDTH, UINT16_MAX, uint_fast8_t
+#include <stdint.h>     // for WCHAR_WIDTH, UINT16_MAX, uint_fast8_t, uint32_t
 #include <stdio.h>      // for printf, putchar
 #include <string.h>     // for memset, memcpy, strlen
 #include <uchar.h>      // for char8_t, char16_t, char32_t, c16rtomb, c32rtomb, mbrtoc16, mbrtoc32
@@ -45,7 +45,7 @@ static const char16_t highSurrogateStart =  0xD800;
 static const char16_t highSurrogateEnd   =  0xDBFF;
 static const char16_t lowSurrogateStart  =  0xDC00;
 static const char16_t lowSurrogateEnd    =  0xDFFF;
-static const char32_t surrogateOffset    = 0x10000;
+static const uint32_t surrogateOffset    = 0x10000;
 static const uint_fast8_t highSurrogateShift = 10;
 
 
@@ -329,30 +329,27 @@ static ssize_t s32tos16(char16_t *restrict str16, size_t str16Size, const char32
 
     while (true) {
         char32_t codeUnit32 = str32[0];
-        char16_t codeUnit16High, codeUnit16Low;
         bool needSurrogatePair = codeUnit32 > UINT16_MAX;
-
-        if (needSurrogatePair) { // utf-32 code unit needs utf-16 surrogate pair
-            codeUnit32 -= surrogateOffset;
-            // high surrogate = codeUnit32 / 0x400 + 0xD800 = codeUnit32 >> 10 + 0xD800
-            // low surrogate = codeUnit32 % 0x400 + 0xDC00 = codeUnit32 ^ ((codeUnit32 >> 10) << 10) + 0xDC00
-            codeUnit16High = (char16_t)(codeUnit32 >> highSurrogateShift);
-            codeUnit16Low = (char16_t)(codeUnit32 ^ (char32_t)(codeUnit16High << highSurrogateShift)) + lowSurrogateStart;
-            codeUnit16High += highSurrogateStart;
-        } else {
-            codeUnit16High = (char16_t)codeUnit32;
-        }
+        size_t newWritten = needSurrogatePair ? 2 : 1;
 
         if (writing) {
-            if (codeUnit16sWritten * sizeof *str16 >= str16Size) {
+            if ((codeUnit16sWritten + newWritten - 1) * sizeof *str16 >= str16Size) {
                 return -1;
             }
 
-            str16[codeUnit16sWritten] = codeUnit16High;
-            if (needSurrogatePair) {
-                ++codeUnit16sWritten;
-                str16[codeUnit16sWritten] = codeUnit16Low;
+            char16_t codeUnit16;
+            if (needSurrogatePair) { // utf-32 code unit needs utf-16 surrogate pair
+                codeUnit32 -= surrogateOffset;
+                // high surrogate = codeUnit32 / 0x400 + 0xD800 = codeUnit32 >> 10 + 0xD800
+                // low surrogate = codeUnit32 % 0x400 + 0xDC00 = codeUnit32 ^ ((codeUnit32 >> 10) << 10) + 0xDC00
+                codeUnit16 = (char16_t)(codeUnit32 >> highSurrogateShift);
+                str16[codeUnit16sWritten + 1] = (char16_t)(codeUnit32 ^ (char32_t)(codeUnit16 << highSurrogateShift)) + lowSurrogateStart;
+                codeUnit16 += highSurrogateStart;
+            } else {
+                codeUnit16 = (char16_t)codeUnit32;
             }
+
+            str16[codeUnit16sWritten] = codeUnit16;
         }
 
         if (codeUnit32 == U'\0') { // utf-32 code unit is terminator
@@ -360,7 +357,7 @@ static ssize_t s32tos16(char16_t *restrict str16, size_t str16Size, const char32
         }
 
         ++str32;
-        ++codeUnit16sWritten;
+        codeUnit16sWritten += newWritten;
     }
 
     return (ssize_t)codeUnit16sWritten;
@@ -509,7 +506,7 @@ int main(void) {
     putchar('\n');
 
     char8_t str8Buf[82];
-    puts("\n\"Correct\" utf-8 size is 80/81");
+    printf("\n\"Correct\" utf-8 size is 80/81\n");
 
     putchar('\n');
 #ifndef __MINGW64__
@@ -532,7 +529,7 @@ int main(void) {
 
 
     char16_t str16Buf[44];
-    puts("\n\"Correct\" utf-16 size is 42/43");
+    printf("\n\"Correct\" utf-16 size is 42/43\n");
 
     putchar('\n');
 #ifndef __MINGW64__
@@ -543,7 +540,6 @@ int main(void) {
     convert(8, 16);
 #endif
 
-    // TODO: Figure out why convert fails unless buf size is at least 44 despite this giving 34
     printf("s32tos16: %zd\n", s32tos16(nullptr, 0, str32));
     convert(32, 16);
 
@@ -560,7 +556,7 @@ int main(void) {
 
 #ifndef __MINGW64__
     char32_t str32Buf[35];
-    puts("\n\"Correct\" utf-32 size is 33/34");
+    printf("\n\"Correct\" utf-32 size is 33/34\n");
 
     putchar('\n');
     printf("s8tos32: %zd\n", s8tos32(nullptr, 0, str8));
@@ -580,8 +576,8 @@ int main(void) {
 #endif
 
 
-    wchar_t wstrBuf[81];
-    puts("\n\"Correct\" wchar size is 33/34(Unix-likes) and 42/43(Windows)");
+    wchar_t wstrBuf[80];
+    printf("\n\"Correct\" wchar size is 33/34(Unix-likes) and 42/43(Windows)\n");
 
     putchar('\n');
     // TODO: Figure out why this returns 80 with mingw-w64
