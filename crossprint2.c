@@ -20,9 +20,16 @@
 #define WCHAR_WIDTH 16
 #define nullptr NULL
 typedef SSIZE_T ssize_t;
-typedef unsigned char char8_t;
 #else
 #include <sys/types.h>  // for ssize_t
+#endif
+
+#if !defined(__STDC_VERSION_UCHAR_H__) || __STDC_VERSION_UCHAR_H_ < 202311L
+typedef unsigned char char8_t;
+#endif
+
+#if (!defined(__STDC_VERSION_WCHAR_H__) || __STDC_VERSION_WCHAR_H_ < 202311L) && defined(__gnu_linux__)
+#define WCHAR_WIDTH 32
 #endif
 
 #ifndef __STDC_UTF_16__
@@ -184,20 +191,20 @@ static ssize_t s8tos16(char16_t *restrict str16, size_t str16Size, const char8_t
     size_t codeUnit16sWritten = 0;
 
     bool writing = str16 != nullptr && str16Size != 0;
-    char16_t *restrict buf = writing ? convBuf16 : nullptr;
 
     while (true) {
-        size_t convState = mbrtoc16(buf, (const char *restrict)str8, remainingCodeUnit8s, &state);
+        // This should pass a nullptr instead of convBuf16 when not writing but some versions of glibc crash if nullptr is passed
+        size_t convState = mbrtoc16(convBuf16, (const char *restrict)str8, remainingCodeUnit8s, &state);
         if ((ssize_t)convState == -1 || (ssize_t)convState == -2) { // utf-8 char is invalid or truncated
             return -1;
         }
 
         if (writing) {
-            if (codeUnit16sWritten * sizeof *buf >= str16Size || convBuf16[1] != u'\0') {
+            if (codeUnit16sWritten * sizeof *convBuf16 >= str16Size || convBuf16[1] != u'\0') {
                 return -1;
             }
 
-            memcpy(str16, convBuf16, sizeof *buf);
+            memcpy(str16, convBuf16, sizeof *convBuf16);
             ++str16;
         }
 
@@ -533,10 +540,7 @@ int main(void) {
 
     putchar('\n');
 #ifndef __MINGW64__
-#ifdef _MSC_VER
-    // TODO: Fix crash with Linux gcc
     printf("s8tos16: %zd\n", s8tos16(nullptr, 0, str8));
-#endif
     convert(8, 16);
 #endif
 
