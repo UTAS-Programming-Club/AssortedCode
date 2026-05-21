@@ -7,7 +7,7 @@
 
 #include <locale.h>     // for LC_ALL, setlocale
 #include <stddef.h>     // for size_t, wchar_t
-#include <stdint.h>     // for WCHAR_WIDTH, UINT16_MAX, uint_fast8_t, uint32_t
+#include <stdint.h>     // for WCHAR_WIDTH, UINT16_MAX, uint32_t, uint_fast8_t
 #include <stdio.h>      // for printf, putchar
 #include <string.h>     // for memset, memcpy, strlen
 #include <uchar.h>      // for char8_t, char16_t, char32_t, c16rtomb, c32rtomb, mbrtoc16, mbrtoc32
@@ -28,7 +28,7 @@ typedef SSIZE_T ssize_t;
 typedef unsigned char char8_t;
 #endif
 
-#if (!defined(__STDC_VERSION_WCHAR_H__) || __STDC_VERSION_WCHAR_H_ < 202311L) && defined(__gnu_linux__)
+#if (!defined(__STDC_VERSION_WCHAR_H__) || __STDC_VERSION_WCHAR_H_ < 202311L) && defined(__gnu_linux__) && !defined(WCHAR_WIDTH)
 #define WCHAR_WIDTH 32
 #endif
 
@@ -614,4 +614,6 @@ int main(void) {
         printws(wstrBuf);
     }
     putchar('\n');
+
+    return 0;
 }
