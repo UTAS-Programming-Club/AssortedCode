@@ -9,7 +9,7 @@
 
 
 // Import agenda layout
-#import "/2025-2026/Templates/Structure-20260322.typ": *
+#import "/2025-2026/Templates/Structure-20260715.typ": *
 #show: it => agenda(meeting_date, wrap_meeting_date, meeting_type, location, it)
 
 
