@@ -1,4 +1,6 @@
-#! /bin/sh
+#! /usr/bin/env sh
+
+set -e
 
 # TODO: Only redownload pandoc if a flag is given
 # TODO: Reverse sort on dated session files to put newest at top?
@@ -17,7 +19,7 @@ wget -q https://github.com/jgm/pandoc/releases/download/3.3/pandoc-3.3-linux-amd
 tar --strip-components 1 -xf pandoc.tar.gz pandoc-3.3/bin/pandoc
 rm pandoc.tar.gz
 
-rm -r "$INPUT_PATH" 2> /dev/null
+[ -d "$INPUT_PATH" ] && rm -r "$INPUT_PATH"
 mkdir "$INPUT_PATH"
 unzip -q "$1" -d "$INPUT_PATH"
 
@@ -28,7 +30,7 @@ git -C "$OUTPUT_IMAGES_PATH" pull -q 2>/dev/null
 
 IMAGES_REPO_BRANCH=$(git -C "$OUTPUT_IMAGES_PATH" branch --show-current)
 if [ "$IMAGES_REPO_BRANCH" != "$3" ]; then
-  git -C "$OUTPUT_IMAGES_PATH" switch -q "$3" 2>/dev/null || { 
+  git -C "$OUTPUT_IMAGES_PATH" switch -q "$3" 2>/dev/null || {
     git -C "$OUTPUT_IMAGES_PATH" checkout -q --orphan "$3"
     git -C "$OUTPUT_IMAGES_PATH" rm -rfq .
   }
@@ -44,7 +46,7 @@ printf "" > "$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
 cd "$INPUT_PATH" || exit 1
 
 # shellcheck disable=SC2016
-find . -print0 | sort -z | xargs -0 sh -c '
+find . -print0 | sort -z | xargs -0 sh -ec '
 INPUTS_PATH="$1"
 OUTPUT_IMAGES_PATH="$2"
 OUTPUT_WIKI_PATH="$3"
@@ -89,12 +91,12 @@ COMMIT_NAME="Typst Export $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 (
 cd "../$OUTPUT_IMAGES_PATH" || exit 1
 git add .
-git commit -m "$COMMIT_NAME"
+git commit -m "$COMMIT_NAME" || true
 git push || git push --set-upstream origin "$3"
 )
 
 cd "../$OUTPUT_WIKI_PATH" || exit 1
 
 git add .
-git commit -m "$COMMIT_NAME"
+git commit -m "$COMMIT_NAME" | true
 git push
