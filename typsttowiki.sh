@@ -6,7 +6,7 @@ set -e
 # TODO: Reverse sort on dated session files to put newest at top?
 
 if [ $# -ne 3 ]; then
-  printf "%s zip_path git_url image_git_branch\n" "$0"
+  printf "%s zip_path https_git_url image_git_branch\n" "$0"
   exit 1
 fi
 
@@ -46,7 +46,7 @@ printf "" > "$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
 cd "$INPUT_PATH" || exit 1
 
 # shellcheck disable=SC2016
-find . -print0 | sort -z | xargs -0 sh -ec '
+find . -print0 | sort -z | xargs -0 sh -ce '
 INPUTS_PATH="$1"
 OUTPUT_IMAGES_PATH="$2"
 OUTPUT_WIKI_PATH="$3"
@@ -70,7 +70,7 @@ for FILE; do
           "${GIT_URL%.git}" \
           "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
         OUTPUT_PATH="$OUTPUT_WIKI_PATH/$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
-        sed -i.bak "s!#image(\"\(\.\./\)\+!#image(\"https://raw.githubusercontent${GIT_URL#git@github}/$IMAGES_GIT_BRANCH/!" "$FILE"
+        sed -i.bak "s@#image(\"\(\.\./\)\+@#image(\"https://raw.githubusercontent${GIT_URL#https://github}/$IMAGES_GIT_BRANCH/@" "$FILE"
         ../bin/pandoc -f typst -t gfm --wrap=preserve "$FILE" -o "../$OUTPUT_PATH"
         ;;
       *.png)
@@ -91,12 +91,12 @@ COMMIT_NAME="Typst Export $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 (
 cd "../$OUTPUT_IMAGES_PATH" || exit 1
 git add .
-git commit -m "$COMMIT_NAME" || true
+git commit -m "$COMMIT_NAME"
 git push || git push --set-upstream origin "$3"
 )
 
 cd "../$OUTPUT_WIKI_PATH" || exit 1
 
 git add .
-git commit -m "$COMMIT_NAME" | true
+git commit -m "$COMMIT_NAME"
 git push
