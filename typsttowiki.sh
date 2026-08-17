@@ -70,7 +70,7 @@ for FILE; do
           "${GIT_URL%.git}" \
           "$(echo "$NO_EXT_INPUT_PATH" | sed -e "s#/#%3A #g" -e "s/ /-/g")" >> "../$OUTPUT_WIKI_PATH/$SIDEBAR_FILE"
         OUTPUT_PATH="$OUTPUT_WIKI_PATH/$(echo "$NO_EXT_INPUT_PATH" | sed "s#/#: #g").md"
-        sed -i.bak "s@#image(\"\(\.\./\)\+@#image(\"https://raw.githubusercontent${GIT_URL#https://github}/$IMAGES_GIT_BRANCH/@" "$FILE"
+        sed -i.bak "s!#image(\"\(\.\./\)\+!#image(\"https://raw.githubusercontent${GIT_URL#git@github}/$IMAGES_GIT_BRANCH/!" "$FILE"
         ../bin/pandoc -f typst -t gfm --wrap=preserve "$FILE" -o "../$OUTPUT_PATH"
         ;;
       *.png)
